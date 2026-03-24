@@ -13,21 +13,21 @@
 #include "led_strip_interface.h"
 #include "nvs_flash.h"
 
-#define WS2812B_COUNT 25
-#define WS2812B_MEMORY_BLOCK_WORDS 0
-#define LED_STRIP_GPIO_PIN 4
+#define WS2812B_COUNT 25  // WS2812B的数量 如果需要修改数量 需要同时修改html 否则无法在网页控制
+#define WS2812B_MEMORY_BLOCK_WORDS 0  // ESP32C3 好像没有RMT DMA
+#define LED_STRIP_GPIO_PIN 4  // WS2812B 控制引脚 经测试能在GPIO9工作
 #define LED_STRIP_RMT_RES_HZ  (10 * 1000 * 1000)
-#define DEFAULT_LED_BRIGHTNESS 16
+#define DEFAULT_LED_BRIGHTNESS 16  // 初始亮度 0~255 如果供电不足不推荐满亮度
 
-#define WIFI_SSID      "CMCC-2.4G Xu"
-#define WIFI_PASS      "xu123456789"
+#define WIFI_SSID      "CMCC-2.4G Xu"  // 修改为自己的WIFI名称
+#define WIFI_PASS      "xu123456789"   // 修改为自己的WIFI密码
 
 static u_int8_t LED_BRIGHTNESS = DEFAULT_LED_BRIGHTNESS;
 static const char *TAG = "WS2812B_Server";
 static bool IsConnectWifi = false;
-static bool connection_happened = false;
+static bool IsConnectionHappened = false;
 
-static uint8_t current_colors[WS2812B_COUNT][3] = {0};
+static uint8_t current_colors[WS2812B_COUNT][3] = {0};  // 存储WS2812B的颜色 我暂时找不到对应的API去查询颜色
 static led_strip_handle_t led_strip;
 static httpd_handle_t server = NULL;
 static esp_err_t handle_api_set(httpd_req_t *req);
@@ -49,6 +49,8 @@ static const uint8_t digit_patterns[10][5] = {
     {0x07, 0x05, 0x07, 0x01, 0x07}  // 9
 };
 
+// 设置WS2812B的颜色 会应用配置中的亮度 需要手动刷新
+// r->(0~255) g -> (0~255) b -> (0~255)
 static esp_err_t SetWS2812B_RGB(uint32_t index, uint8_t r, uint8_t g, uint8_t b)
 {
     if (index >= WS2812B_COUNT) {
@@ -76,6 +78,7 @@ static esp_err_t SetWS2812B_RGB(uint32_t index, uint8_t r, uint8_t g, uint8_t b)
     return ret;
 }
 
+// h -> (0~359) s -> (0~255) v -> (0~255)
 static esp_err_t SetWS2812B_HSV(uint32_t index, uint16_t h, uint8_t s, uint8_t v)
 {
     if (index >= WS2812B_COUNT) {
@@ -133,6 +136,7 @@ static esp_err_t SetWS2812B_HSV(uint32_t index, uint16_t h, uint8_t s, uint8_t v
     return SetWS2812B_RGB(index, r, g, b);
 }
 
+// 随机填充所有WS2812B的颜色
 static esp_err_t FillWS2812B_Random()
 {
     for (int i = 0; i < WS2812B_COUNT; i++)
@@ -283,7 +287,7 @@ static void start_webserver(void)
 
 static esp_err_t handle_api_set(httpd_req_t *req)
 {
-    connection_happened = true;
+    IsConnectionHappened = true;
     int total_len = req->content_len;
     if (total_len <= 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No data received");
@@ -369,7 +373,7 @@ static esp_err_t handle_api_set(httpd_req_t *req)
 
 static esp_err_t handle_api_get(httpd_req_t *req)
 {
-    connection_happened = true;
+    IsConnectionHappened = true;
     cJSON *root = cJSON_CreateArray();
     if (!root) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
@@ -406,7 +410,7 @@ static esp_err_t handle_api_get(httpd_req_t *req)
 
 static esp_err_t handle_api_fill_random(httpd_req_t *req)
 {
-    connection_happened = true;
+    IsConnectionHappened = true;
     FillWS2812B_Random();
     led_strip_refresh(led_strip);
     httpd_resp_set_type(req, "text/plain");
@@ -416,7 +420,7 @@ static esp_err_t handle_api_fill_random(httpd_req_t *req)
 
 static esp_err_t handle_api_set_brightness(httpd_req_t *req)
 {
-    connection_happened = true;
+    IsConnectionHappened = true;
     int total_len = req->content_len;
     if (total_len <= 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No data received");
@@ -475,7 +479,7 @@ static esp_err_t handle_api_set_brightness(httpd_req_t *req)
 
 static esp_err_t handle_root(httpd_req_t *req)
 {
-    connection_happened = true;
+    IsConnectionHappened = true;
     const char *html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1\"><title>WS2812B 5x5控制器</title><style>body{font-family:sans-serif;text-align:center;margin:20px}.grid{display:grid;grid-template-columns:repeat(5,60px);gap:10px;justify-content:center;margin:20px auto}.cell{width:60px;height:60px;border-radius:8px;border:2px solid#ccc;cursor:pointer;position:relative}.cell:hover{transform:scale(1.05);border-color:#888}.cell input{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer}button{padding:10px 20px;font-size:16px;margin:10px;cursor:pointer}.status{margin-top:20px;color:green;font-weight:bold}.batch-control{display:flex;justify-content:center;gap:20px;margin:20px auto}</style></head><body><h1>WS2812B 5x5灯珠控制</h1><div id=\"grid\"class=\"grid\"></div><div class=\"batch-control\"><div id=\"batchColorCell\"class=\"cell\"style=\"background-color: #000000; display: inline-block; margin: 0; cursor: pointer;\"><input type=\"color\"id=\"batchColor\"value=\"#000000\"></div><button id=\"batchApplyBtn\">全部应用此颜色</button><button id=\"randomBtn\">随机颜色</button></div><div class=\"brightness-control\"><label>亮度:<input type=\"range\"id=\"brightnessSlider\"min=\"0\"max=\"255\"value=\"16\"><input type=\"number\"id=\"brightnessNumber\"min=\"0\"max=\"255\"step=\"1\"value=\"16\"></label><button id=\"setBrightnessBtn\">设置亮度</button></div><button id=\"updateBtn\">更新颜色</button><button id=\"setBtn\">应用颜色</button><div id=\"status\"class=\"status\"></div><script>const NUM_LEDS=25;let colors=new Array(NUM_LEDS).fill('#000000');function createGrid(){const gridDiv=document.getElementById('grid');gridDiv.innerHTML='';for(let i=0;i<NUM_LEDS;i++){const cell=document.createElement('div');cell.className='cell';cell.style.backgroundColor=colors[i];const input=document.createElement('input');input.type='color';input.value=colors[i];input.addEventListener('change',(function(idx,inp){return function(e){const newColor=e.target.value;colors[idx]=newColor;cell.style.backgroundColor=newColor}})(i,input));cell.appendChild(input);gridDiv.appendChild(cell)}}async function fetchColors(){try{const response=await fetch('/api/get');if(!response.ok)throw new Error('获取失败');colors=await response.json();const cells=document.querySelectorAll('.cell');for(let i=0;i<NUM_LEDS;i++){cells[i].style.backgroundColor=colors[i];const input=cells[i].querySelector('input');if(input)input.value=colors[i]}document.getElementById('status').innerText='已从服务器更新颜色';setTimeout(()=>document.getElementById('status').innerText='',2000)}catch(err){document.getElementById('status').innerText='更新失败: '+err.message}}async function sendColors(){try{const response=await fetch('/api/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(colors)});const text=await response.text();if(!response.ok)throw new Error(text);document.getElementById('status').innerText=text;setTimeout(()=>document.getElementById('status').innerText='',2000)}catch(err){document.getElementById('status').innerText='设置失败: '+err.message}}function setAllColors(color){const cells=document.querySelectorAll('.cell');for(let i=0;i<NUM_LEDS;i++){colors[i]=color;cells[i].style.backgroundColor=color;const input=cells[i].querySelector('input');if(input)input.value=color}document.getElementById('status').innerText='已批量设置为 '+color;setTimeout(()=>document.getElementById('status').innerText='',2000)}async function fillRandom(){try{const response=await fetch('/api/fill_random',{method:'POST',headers:{'Content-Type':'application/json'}});const text=await response.text();if(!response.ok)throw new Error(text);document.getElementById('status').innerText=text;await fetchColors()}catch(err){document.getElementById('status').innerText='随机填充失败: '+err.message}}async function setBrightness(){const brightness=parseInt(document.getElementById('brightnessSlider').value,10);try{const response=await fetch('/api/set_brightness',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({brightness:brightness})});const text=await response.text();if(!response.ok)throw new Error(text);document.getElementById('status').innerText=text}catch(err){document.getElementById('status').innerText='设置亮度失败: '+err.message}}function initBatchColorPicker(){const colorPickerCell=document.getElementById('batchColorCell');const hiddenInput=document.getElementById('batchColor');colorPickerCell.addEventListener('click',()=>{hiddenInput.click()});hiddenInput.addEventListener('change',(e)=>{const newColor=e.target.value;colorPickerCell.style.backgroundColor=newColor})}const slider=document.getElementById('brightnessSlider');const numberInput=document.getElementById('brightnessNumber');slider.addEventListener('input',function(){numberInput.value=this.value});numberInput.addEventListener('input',function(){let val=parseInt(this.value,10);if(isNaN(val))val=0;val=Math.min(255,Math.max(0,val));slider.value=val;this.value=val});document.getElementById('updateBtn').onclick=fetchColors;document.getElementById('setBtn').onclick=sendColors;document.getElementById('batchApplyBtn').onclick=()=>{const batchColor=document.getElementById('batchColor').value;setAllColors(batchColor)};document.getElementById('randomBtn').onclick=fillRandom;document.getElementById('setBrightnessBtn').onclick=setBrightness;createGrid();initBatchColorPicker();setTimeout(()=>{fetchColors()},500);</script></body></html>";
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, html, strlen(html));
@@ -523,7 +527,7 @@ static void display_ip_sequence(const char *ip) {
             set_right_digit(part[d], 127, 127, 127);
             led_strip_refresh(led_strip);
             for (int t = 0; t < 20; t++) {
-                if (connection_happened)
+                if (IsConnectionHappened)
                 {
                     clear_leds();
                     led_strip_refresh(led_strip);
@@ -537,7 +541,7 @@ static void display_ip_sequence(const char *ip) {
         led_strip_refresh(led_strip);
 
         for (int t = 0; t < 20; t++) {
-            if (connection_happened)
+            if (IsConnectionHappened)
             {
                 clear_leds();
                 led_strip_refresh(led_strip);
@@ -577,7 +581,7 @@ void app_main(void)
 
     start_webserver();
 
-    while (!connection_happened) {
+    while (!IsConnectionHappened) {
         display_ip_sequence(ip_str);
     }
 
