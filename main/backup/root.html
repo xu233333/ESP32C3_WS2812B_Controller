@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WS2812B 矩阵控制器</title>
+    <title>WS2812B 5x5 控制器</title>
     <style>
         body {
             font-family: sans-serif;
@@ -12,6 +12,7 @@
         }
         .grid {
             display: grid;
+            grid-template-columns: repeat(5, 60px);
             gap: 10px;
             justify-content: center;
             margin: 20px auto;
@@ -58,14 +59,8 @@
     </style>
 </head>
 <body>
-<h1>WS2812B 矩阵控制器</h1>
+<h1>WS2812B 5x5 灯珠控制</h1>
 <div id="grid" class="grid"></div>
-<div class="brightness-control">
-    <label>亮度:
-        <input type="range" id="brightnessSlider" min="0" max="255" value="16">
-        <input type="number" id="brightnessNumber" min="0" max="255" step="1" value="16">
-    </label>
-</div>
 <div class="batch-control">
     <div id="batchColorCell" class="cell" style="background-color: #000000; display: inline-block; margin: 0; cursor: pointer;">
         <input type="color" id="batchColor" value="#000000">
@@ -73,43 +68,26 @@
     <button id="batchApplyBtn">全部应用此颜色</button>
     <button id="randomBtn">随机颜色</button>
 </div>
+<div class="brightness-control">
+    <label>亮度:
+        <input type="range" id="brightnessSlider" min="0" max="255" value="16">
+        <input type="number" id="brightnessNumber" min="0" max="255" step="1" value="16">
+    </label>
+    <button id="setBrightnessBtn">设置亮度</button>
+</div>
 <button id="updateBtn">更新颜色</button>
 <button id="setBtn">应用颜色</button>
-<div class="reboot-control">
-    <button id="rebootNormalBtn">重启设备（正常模式）</button>
-    <button id="rebootAPBtn">重启进入配网模式</button>
-</div>
+<div id="status" class="status"></div>
 
 <script>
-    let rows = 5, cols = 5;
-    let totalLeds = rows * cols;
-    let colors = [];
-    let currentBrightness = 16;
-    let gridInitialized = false;
+    const NUM_LEDS = 25;
+    let colors = new Array(NUM_LEDS).fill('#000000');
 
-    function rgbToHex(rgb) {
-        return '#' + ((1 << 24) + (rgb[0] << 16) + (rgb[1] << 8) + rgb[2]).toString(16).slice(1);
-    }
-
-    function hexToRgb(hex) {
-        let r = parseInt(hex.slice(1,3), 16);
-        let g = parseInt(hex.slice(3,5), 16);
-        let b = parseInt(hex.slice(5,7), 16);
-        return [r, g, b];
-    }
-
+    // 创建网格，每个格子包含一个隐藏的颜色选择器
     function createGrid() {
         const gridDiv = document.getElementById('grid');
-        // 设置 grid 列模板
-        gridDiv.style.gridTemplateColumns = `repeat(${cols}, 60px)`;
         gridDiv.innerHTML = '';
-
-        // 确保 colors 数组长度匹配
-        if (colors.length !== totalLeds) {
-            colors = new Array(totalLeds).fill('#000000');
-        }
-
-        for (let i = 0; i < totalLeds; i++) {
+        for (let i = 0; i < NUM_LEDS; i++) {
             const cell = document.createElement('div');
             cell.className = 'cell';
             cell.style.backgroundColor = colors[i];
@@ -117,6 +95,7 @@
             const input = document.createElement('input');
             input.type = 'color';
             input.value = colors[i];
+            // 颜色变化时更新背景色和 colors 数组
             input.addEventListener('change', (function(idx, inp) {
                 return function(e) {
                     const newColor = e.target.value;
@@ -130,169 +109,136 @@
         }
     }
 
-    function updateGridColors() {
-        const cells = document.querySelectorAll('.cell');
-        for (let i = 0; i < totalLeds && i < cells.length; i++) {
-            cells[i].style.backgroundColor = colors[i];
-            const input = cells[i].querySelector('input');
-            if (input) input.value = colors[i];
-        }
-    }
-
+    // 从服务器获取当前颜色并更新界面
     async function fetchColors() {
         try {
             const response = await fetch('/api/get');
             if (!response.ok) throw new Error('获取失败');
-            const data = await response.json();
-
-            // 首次获取时，根据返回的 ROW/COL 初始化网格
-            if (!gridInitialized && data.WS2812B_ROW && data.WS2812B_COL) {
-                rows = data.WS2812B_ROW;
-                cols = data.WS2812B_COL;
-                totalLeds = rows * cols;
-                gridInitialized = true;
-                createGrid();
+            colors = await response.json();
+            const cells = document.querySelectorAll('.cell');
+            for (let i = 0; i < NUM_LEDS; i++) {
+                cells[i].style.backgroundColor = colors[i];
+                const input = cells[i].querySelector('input');
+                if (input) input.value = colors[i];
             }
-
-            // 更新颜色数组
-            if (data.WS2812B && Array.isArray(data.WS2812B)) {
-                const rgbArray = data.WS2812B;
-                // 确保颜色数组长度正确
-                if (rgbArray.length === totalLeds) {
-                    for (let i = 0; i < totalLeds; i++) {
-                        const rgb = rgbArray[i];
-                        if (rgb && rgb.length === 3) {
-                            colors[i] = rgbToHex(rgb);
-                        }
-                    }
-                    // 刷新界面
-                    updateGridColors();
-                } else {
-                    console.warn(`颜色数组长度 ${rgbArray.length} 与预期 ${totalLeds} 不符`);
-                }
-            }
-
-            // 更新亮度
-            if (typeof data.WS2812B_Brightness === 'number') {
-                currentBrightness = data.WS2812B_Brightness;
-                document.getElementById('brightnessSlider').value = currentBrightness;
-                document.getElementById('brightnessNumber').value = currentBrightness;
-            }
+            document.getElementById('status').innerText = '已从服务器更新颜色';
+            setTimeout(() => document.getElementById('status').innerText = '', 2000);
         } catch (err) {
-            console.error('获取颜色失败:', err);
+            document.getElementById('status').innerText = '更新失败: ' + err.message;
         }
     }
 
+    // 将当前颜色数组发送到服务器
     async function sendColors() {
-        const rgbArray = [];
-        for (let i = 0; i < totalLeds; i++) {
-            rgbArray.push(hexToRgb(colors[i]));
-        }
-        currentBrightness = parseInt(document.getElementById('brightnessSlider').value, 10);
-        const payload = {
-            WS2812B: rgbArray,
-            WS2812B_Brightness: currentBrightness
-        };
         try {
             const response = await fetch('/api/set', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(colors)
             });
-            if (!response.ok) throw new Error('设置失败');
             const text = await response.text();
-            console.log(text);
+            if (!response.ok) throw new Error(text);
+            document.getElementById('status').innerText = text;
+            setTimeout(() => document.getElementById('status').innerText = '', 2000);
         } catch (err) {
-            console.error('设置颜色失败:', err);
+            document.getElementById('status').innerText = '设置失败: ' + err.message;
         }
     }
 
+    // 将所有灯珠设置为指定颜色（格式 '#RRGGBB'）
     function setAllColors(color) {
-        for (let i = 0; i < totalLeds; i++) {
+        const cells = document.querySelectorAll('.cell');
+        for (let i = 0; i < NUM_LEDS; i++) {
             colors[i] = color;
+            cells[i].style.backgroundColor = color;
+            // 同时更新隐藏的颜色选择器，保持一致性
+            const input = cells[i].querySelector('input');
+            if (input) input.value = color;
         }
-        updateGridColors();
+        document.getElementById('status').innerText = '已批量设置为 ' + color;
+        setTimeout(() => document.getElementById('status').innerText = '', 2000);
     }
 
+    // 随机生成颜色
     async function fillRandom() {
         try {
-            const response = await fetch('/api/random', {
+            const response = await fetch('/api/fill_random', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({})
+                headers: { 'Content-Type': 'application/json' }
             });
-            if (!response.ok) throw new Error('随机填充失败');
+            const text = await response.text();
+            if (!response.ok) throw new Error(text);
+            document.getElementById('status').innerText = text;
+            // 随机填充后，重新从服务器获取最新颜色以更新界面
             await fetchColors();
         } catch (err) {
-            console.error('随机填充失败:', err);
+            document.getElementById('status').innerText = '随机填充失败: ' + err.message;
         }
     }
 
-    async function reboot(apMode) {
+    async function setBrightness() {
+        const brightness = parseInt(document.getElementById('brightnessSlider').value, 10);
         try {
-            const response = await fetch('/api/reboot', {
+            const response = await fetch('/api/set_brightness', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ AP_MODE: apMode })
+                body: JSON.stringify({ brightness: brightness })
             });
-            if (!response.ok) throw new Error('连接失败');
-            alert('设备正在重启...');
+            const text = await response.text();
+            if (!response.ok) throw new Error(text);
+            document.getElementById('status').innerText = text;
         } catch (err) {
-            console.error('重启请求失败:', err);
-            alert('重启失败: ' + err.message);
+            document.getElementById('status').innerText = '设置亮度失败: ' + err.message;
         }
     }
 
+    // 初始化批量颜色选择器
     function initBatchColorPicker() {
         const colorPickerCell = document.getElementById('batchColorCell');
         const hiddenInput = document.getElementById('batchColor');
 
+        // 点击模拟块时触发隐藏颜色选择器
         colorPickerCell.addEventListener('click', () => {
             hiddenInput.click();
         });
 
+        // 当隐藏颜色选择器值改变时，更新模拟块的背景色
         hiddenInput.addEventListener('change', (e) => {
             const newColor = e.target.value;
             colorPickerCell.style.backgroundColor = newColor;
         });
     }
 
-    // 亮度滑块与数字框联动
     const slider = document.getElementById('brightnessSlider');
     const numberInput = document.getElementById('brightnessNumber');
 
     slider.addEventListener('input', function() {
         numberInput.value = this.value;
-        currentBrightness = parseInt(this.value, 10);
-        // 可选：实时更新亮度（如果希望即时生效），这里不自动发送，等待用户点击按钮
     });
+
+    // 数字框变化时同步滑块
     numberInput.addEventListener('input', function() {
         let val = parseInt(this.value, 10);
         if (isNaN(val)) val = 0;
         val = Math.min(255, Math.max(0, val));
         slider.value = val;
         this.value = val;
-        currentBrightness = val;
     });
 
+    // 绑定按钮事件
+    document.getElementById('updateBtn').onclick = fetchColors;
+    document.getElementById('setBtn').onclick = sendColors;
     // 绑定按钮事件
     document.getElementById('batchApplyBtn').onclick = () => {
         const batchColor = document.getElementById('batchColor').value;
         setAllColors(batchColor);
     };
     document.getElementById('randomBtn').onclick = fillRandom;
-
-    document.getElementById('updateBtn').onclick = fetchColors;
-    document.getElementById('setBtn').onclick = sendColors;
-
-    document.getElementById('rebootNormalBtn').onclick = () => reboot(0);
-    document.getElementById('rebootAPBtn').onclick = () => reboot(1);
+    document.getElementById('setBrightnessBtn').onclick = setBrightness;
 
     // 初始化
     createGrid();
     initBatchColorPicker();
-    fetchColors();
-    // 再次刷新颜色
     setTimeout(() => {
         fetchColors();
     }, 500);
