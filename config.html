@@ -92,6 +92,14 @@
         <input type="text" id="password" placeholder="请输入WiFi密码">
     </div>
     <div class="form-group">
+        <label>LED 行数</label>
+        <input type="number" id="led_row" placeholder="1~255" min="1" max="255">
+    </div>
+    <div class="form-group">
+        <label>LED 列数</label>
+        <input type="number" id="led_col" placeholder="1~255" min="1" max="255">
+    </div>
+    <div class="form-group">
         <label>LED 引脚 (GPIO)</label>
         <input type="number" id="led_pin" placeholder="0~11" min="0" max="11">
     </div>
@@ -120,6 +128,8 @@
             const data = await response.json();
             document.getElementById('ssid').value = data.ssid || '';
             document.getElementById('password').value = data.password || '';
+            document.getElementById('led_row').value = data.led_row !== undefined ? data.led_row : '';
+            document.getElementById('led_col').value = data.led_col !== undefined ? data.led_col : '';
             document.getElementById('led_pin').value = data.led_pin !== undefined ? data.led_pin : '';
             document.getElementById('brightness').value = data.brightness !== undefined ? data.brightness : '';
             showStatus('配置已读取', true);
@@ -133,9 +143,13 @@
         const payload = {
             ssid: document.getElementById('ssid').value,
             password: document.getElementById('password').value,
+            led_row: parseInt(document.getElementById('led_row').value, 10),
+            led_col: parseInt(document.getElementById('led_col').value, 10),
             led_pin: parseInt(document.getElementById('led_pin').value, 10),
             brightness: parseInt(document.getElementById('brightness').value, 10)
         };
+        if (isNaN(payload.led_row)) payload.led_row = 1;
+        if (isNaN(payload.led_col)) payload.led_col = 1;
         if (isNaN(payload.led_pin)) payload.led_pin = -1;
         if (isNaN(payload.brightness)) payload.brightness = 16;
 
