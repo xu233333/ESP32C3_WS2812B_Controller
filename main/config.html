@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>设备配置</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 400px;
+            margin: 30px auto;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        button {
+            flex: 1;
+            padding: 10px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #218838;
+        }
+        .read-btn {
+            background: #17a2b8;
+        }
+        .read-btn:hover {
+            background: #138496;
+        }
+        .status {
+            margin-top: 15px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+        hr {
+            margin: 20px 0;
+        }
+        .reboot {
+            background: #ffc107;
+            color: #333;
+        }
+        .reboot:hover {
+            background: #e0a800;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>设备配置</h2>
+    <div class="form-group">
+        <label>WiFi SSID</label>
+        <input type="text" id="ssid" placeholder="请输入WiFi名称">
+    </div>
+    <div class="form-group">
+        <label>WiFi 密码</label>
+        <input type="text" id="password" placeholder="请输入WiFi密码">
+    </div>
+    <div class="form-group">
+        <label>LED 行数</label>
+        <input type="number" id="led_row" placeholder="1~255" min="1" max="255">
+    </div>
+    <div class="form-group">
+        <label>LED 列数</label>
+        <input type="number" id="led_col" placeholder="1~255" min="1" max="255">
+    </div>
+    <div class="form-group">
+        <label>LED 引脚 (GPIO)</label>
+        <input type="number" id="led_pin" placeholder="0~11" min="0" max="11">
+    </div>
+    <div class="form-group">
+        <label>默认亮度 (0~255)</label>
+        <input type="number" id="brightness" placeholder="0~255" min="0" max="255">
+    </div>
+    <div class="form-group">
+        <label>信号反相 (0~1)</label>
+        <input type="number" id="invert_data" placeholder="0~1" min="0" max="1">
+    </div>
+    <div class="button-group">
+        <button id="readBtn" class="read-btn">读取配置</button>
+        <button id="saveBtn">保存配置</button>
+    </div>
+    <hr>
+    <div class="button-group">
+        <button id="rebootNormalBtn" class="reboot">重启设备 (正常模式)</button>
+        <button id="rebootAPBtn" class="reboot" style="margin-top:5px;">重启进入配网模式</button>
+    </div>
+    <div id="status" class="status"></div>
+</div>
+
+<script>
+    // 获取当前配置并填充表单
+    async function loadConfig() {
+        try {
+            const response = await fetch('/api/get_config');
+            if (!response.ok) throw new Error('获取配置失败');
+            const data = await response.json();
+            document.getElementById('ssid').value = data.ssid || '';
+            document.getElementById('password').value = data.password || '';
+            document.getElementById('led_row').value = data.led_row !== undefined ? data.led_row : '';
+            document.getElementById('led_col').value = data.led_col !== undefined ? data.led_col : '';
+            document.getElementById('led_pin').value = data.led_pin !== undefined ? data.led_pin : '';
+            document.getElementById('brightness').value = data.brightness !== undefined ? data.brightness : '';
+            document.getElementById('invert_data').value = data.invert_data !== undefined ? data.invert_data: '';
+            showStatus('配置已读取', true);
+        } catch (err) {
+            showStatus('获取配置失败: ' + err.message, false);
+        }
+    }
+
+    // 保存配置
+    async function saveConfig() {
+        const payload = {
+            ssid: document.getElementById('ssid').value,
+            password: document.getElementById('password').value,
+            led_row: parseInt(document.getElementById('led_row').value, 10),
+            led_col: parseInt(document.getElementById('led_col').value, 10),
+            led_pin: parseInt(document.getElementById('led_pin').value, 10),
+            brightness: parseInt(document.getElementById('brightness').value, 10),
+            invert_data: parseInt(document.getElementById('invert_data').value, 10)
+        };
+        if (isNaN(payload.led_row)) payload.led_row = 1;
+        if (isNaN(payload.led_col)) payload.led_col = 1;
+        if (isNaN(payload.led_pin)) payload.led_pin = -1;
+        if (isNaN(payload.brightness)) payload.brightness = 16;
+
+        try {
+            const response = await fetch('/api/set_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error('保存失败');
+            const text = await response.text();
+            showStatus('配置已保存', true);
+        } catch (err) {
+            showStatus('保存失败: ' + err.message, false);
+        }
+    }
+
+    // 重启设备
+    async function reboot(apMode) {
+        try {
+            const response = await fetch('/api/reboot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ AP_MODE: apMode })
+            });
+            if (!response.ok) throw new Error('重启失败');
+            showStatus('设备正在重启...', true);
+            setTimeout(() => {}, 2000);
+        } catch (err) {
+            showStatus('重启失败: ' + err.message, false);
+        }
+    }
+
+    function showStatus(msg, isSuccess) {
+        const statusDiv = document.getElementById('status');
+        statusDiv.textContent = msg;
+        statusDiv.className = 'status ' + (isSuccess ? 'success' : 'error');
+        setTimeout(() => {
+            statusDiv.textContent = '';
+            statusDiv.className = 'status';
+        }, 3000);
+    }
+
+    // 绑定按钮事件
+    document.getElementById('saveBtn').onclick = saveConfig;
+    document.getElementById('readBtn').onclick = loadConfig;
+    document.getElementById('rebootNormalBtn').onclick = () => reboot(0);
+    document.getElementById('rebootAPBtn').onclick = () => reboot(1);
+
+    // 页面加载时自动获取配置
+    loadConfig();
+</script>
+</body>
+</html>

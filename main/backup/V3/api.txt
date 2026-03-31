@@ -1,0 +1,110 @@
+/                       [GET] -> 根网页
+""
+->
+"HTML ..."
+
+/config                 [GET] -> 配置网页
+""
+->
+"HTML ..."
+
+/api/get_config         [GET] -> 获取配置
+""
+->
+{
+    "AP_Mode": ? (BOOL),
+    "Wifi_SSID": "" (STRING),
+    "Wifi_Password": "" (STRING),
+    "AP_SSID": "" (STRING),
+    "AP_Password": "" (STRING),
+    "LED_Pin": ? (INT),
+    "LED_Block_Count": ? (INT),
+    "DefaultBrightness": ? (INT)
+}
+
+/api/set_config         [POST] -> 设置配置
+{
+    "AP_Mode": ? (BOOL),
+    "Wifi_SSID": "" (STRING),
+    "Wifi_Password": "" (STRING),
+    "AP_SSID": "" (STRING),
+    "AP_Password": "" (STRING),
+    "LED_Pin": ? (INT),
+    "LED_Block_Count": ? (INT),
+    "DefaultBrightness": ? (INT)
+}
+->
+"OK"
+
+/api/get_single         [GET] -> 获取单个WS2812B状态
+{
+    "index": ? (INT)
+}
+->
+[R, G, B]
+
+/api/get_brightness     [GET] -> 获取亮度
+""
+->
+{
+    "Brightness": ? (INT)
+}
+
+/api/get_all            [GET] -> 获取所有WS2812B状态
+""
+->
+{
+    "WS2812B": [
+        [R, G, B],
+        ...
+    ],
+    "Brightness": ? (INT)
+}
+
+/api/set_single         [POST] -> 设置单个WS2812B状态
+{
+    "index": ? (INT),
+    "color": [R, G, B]
+}
+->
+"OK"
+
+/api/set_brightness     [POST] -> 设置亮度
+{
+    "Brightness": ? (INT)
+}
+->
+"OK"
+
+/api/set_all            [POST] -> 设置所有WS2812B状态
+{
+    "WS2812B": [
+        [R, G, B],
+        ...
+    ],
+    "Brightness": ? (INT)
+}
+->
+"OK"
+
+/api/get_led_positions  [GET] -> 获取LED位置
+""
+->
+二进制数据 uint8+uint8 存储一个灯
+
+/api/set_led_positions  [POST] -> 设置LED位置
+二进制数据 uint8+uint8 存储一个灯
+->
+"OK"
+
+/api/reboot             [POST] -> 重启
+{
+    "AP_Mode": ? (BOOL) [默认为False]
+}
+->
+"OK"
+
+/api/random             [POST] -> 随机WS2812B颜色
+""
+->
+"OK"
