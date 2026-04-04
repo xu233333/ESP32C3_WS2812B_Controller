@@ -11,10 +11,35 @@
             margin: 20px;
         }
         .grid {
-            display: grid;
-            gap: 10px;
-            justify-content: center;
+            position: relative;
             margin: 20px auto;
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            min-height: 500px;
+            min-width: 500px;
+        }
+        .grid_cell {
+            position: absolute;
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            border: 2px solid #ccc;
+            cursor: pointer;
+            transition: transform 0.1s;
+            box-sizing: border-box;
+        }
+        .grid_cell:hover {
+            transform: scale(1.05);
+            border-color: #888;
+        }
+        .grid_cell input {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
         }
         .cell {
             width: 60px;
@@ -28,7 +53,6 @@
             transform: scale(1.05);
             border-color: #888;
         }
-        /* 隐藏原生颜色选择器样式，让它完全填充格子 */
         .cell input {
             position: absolute;
             top: 0;
@@ -59,7 +83,7 @@
 </head>
 <body>
 <h1>WS2812B 矩阵控制器</h1>
-<div id="grid" class="grid"></div>
+<div id="grid" class="grid" style="width: 837px; height: 837px;"></div>
 <div class="brightness-control">
     <label>亮度:
         <input type="range" id="brightnessSlider" min="0" max="255" value="16">
@@ -81,11 +105,11 @@
 </div>
 
 <script>
-    let rows = 5, cols = 5;
-    let totalLeds = rows * cols;
+    let totalLeds = 4;
     let colors = [];
     let currentBrightness = 16;
     let gridInitialized = false;
+    let led_position = []
 
     function rgbToHex(rgb) {
         return '#' + ((1 << 24) + (rgb[0] << 16) + (rgb[1] << 8) + rgb[2]).toString(16).slice(1);
@@ -100,9 +124,6 @@
 
     function createGrid() {
         const gridDiv = document.getElementById('grid');
-        // 设置 grid 列模板
-        gridDiv.style.gridTemplateColumns = `repeat(${cols}, 60px)`;
-        gridDiv.innerHTML = '';
 
         // 确保 colors 数组长度匹配
         if (colors.length !== totalLeds) {
@@ -111,7 +132,10 @@
 
         for (let i = 0; i < totalLeds; i++) {
             const cell = document.createElement('div');
-            cell.className = 'cell';
+            cell.className = 'grid_cell';
+            cell.style.position = 'absolute';
+            cell.style.left = led_position[i][0] * 3 + 12 + 'px';
+            cell.style.top = led_position[i][1] * 3 + 12 + 'px';
             cell.style.backgroundColor = colors[i];
 
             const input = document.createElement('input');
@@ -131,7 +155,7 @@
     }
 
     function updateGridColors() {
-        const cells = document.querySelectorAll('.cell');
+        const cells = document.querySelectorAll('.grid_cell');
         for (let i = 0; i < totalLeds && i < cells.length; i++) {
             cells[i].style.backgroundColor = colors[i];
             const input = cells[i].querySelector('input');

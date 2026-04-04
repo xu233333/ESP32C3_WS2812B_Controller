@@ -43,6 +43,7 @@ struct Config
     char WS2812B_COLUMN;
     int8_t WS2812B_LED_PIN;  // WS2812B的引脚
     uint8_t DEFAULT_BRIGHTNESS;  // 默认亮度
+    char InvertData;
 };
 
 static struct Config config = {
@@ -52,7 +53,8 @@ static struct Config config = {
     .WS2812B_ROW = WS2812B_ROW_DEFAULT,
     .WS2812B_COLUMN = WS2812B_COLUMN_DEFAULT,
     .WS2812B_LED_PIN = -1,
-    .DEFAULT_BRIGHTNESS = WS2812B_DEFAULT_BRIGHTNESS
+    .DEFAULT_BRIGHTNESS = WS2812B_DEFAULT_BRIGHTNESS,
+    .InvertData = 0
 };
 static led_strip_handle_t led_strip;
 static uint8_t* current_colors;
@@ -68,7 +70,7 @@ static bool EnableResetButton = true;
 static char buf[4096];
 
 const char* ROOT_PAGE = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1\"><title>WS2812B矩阵控制器</title><style>body{font-family:sans-serif;text-align:center;margin:20px}.grid{display:grid;gap:10px;justify-content:center;margin:20px auto}.cell{width:60px;height:60px;border-radius:8px;border:2px solid#ccc;cursor:pointer;position:relative}.cell:hover{transform:scale(1.05);border-color:#888}.cell input{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer}button{padding:10px 20px;font-size:16px;margin:10px;cursor:pointer}.status{margin-top:20px;color:green;font-weight:bold}.batch-control{display:flex;justify-content:center;gap:20px;margin:20px auto}</style></head><body><h1>WS2812B矩阵控制器</h1><div id=\"grid\"class=\"grid\"></div><div class=\"brightness-control\"><label>亮度:<input type=\"range\"id=\"brightnessSlider\"min=\"0\"max=\"255\"value=\"16\"><input type=\"number\"id=\"brightnessNumber\"min=\"0\"max=\"255\"step=\"1\"value=\"16\"></label></div><div class=\"batch-control\"><div id=\"batchColorCell\"class=\"cell\"style=\"background-color: #000000; display: inline-block; margin: 0; cursor: pointer;\"><input type=\"color\"id=\"batchColor\"value=\"#000000\"></div><button id=\"batchApplyBtn\">全部应用此颜色</button><button id=\"randomBtn\">随机颜色</button></div><button id=\"updateBtn\">更新颜色</button><button id=\"setBtn\">应用颜色</button><div class=\"reboot-control\"><button id=\"rebootNormalBtn\">重启设备（正常模式）</button><button id=\"rebootAPBtn\">重启进入配网模式</button></div><script>let rows=5,cols=5;let totalLeds=rows*cols;let colors=[];let currentBrightness=16;let gridInitialized=false;function rgbToHex(rgb){return'#'+((1<<24)+(rgb[0]<<16)+(rgb[1]<<8)+rgb[2]).toString(16).slice(1)}function hexToRgb(hex){let r=parseInt(hex.slice(1,3),16);let g=parseInt(hex.slice(3,5),16);let b=parseInt(hex.slice(5,7),16);return[r,g,b]}function createGrid(){const gridDiv=document.getElementById('grid');gridDiv.style.gridTemplateColumns=`repeat(${cols},60px)`;gridDiv.innerHTML='';if(colors.length!==totalLeds){colors=new Array(totalLeds).fill('#000000')}for(let i=0;i<totalLeds;i++){const cell=document.createElement('div');cell.className='cell';cell.style.backgroundColor=colors[i];const input=document.createElement('input');input.type='color';input.value=colors[i];input.addEventListener('change',(function(idx,inp){return function(e){const newColor=e.target.value;colors[idx]=newColor;cell.style.backgroundColor=newColor}})(i,input));cell.appendChild(input);gridDiv.appendChild(cell)}}function updateGridColors(){const cells=document.querySelectorAll('.cell');for(let i=0;i<totalLeds&&i<cells.length;i++){cells[i].style.backgroundColor=colors[i];const input=cells[i].querySelector('input');if(input)input.value=colors[i]}}async function fetchColors(){try{const response=await fetch('/api/get');if(!response.ok)throw new Error('获取失败');const data=await response.json();if(!gridInitialized&&data.WS2812B_ROW&&data.WS2812B_COL){rows=data.WS2812B_ROW;cols=data.WS2812B_COL;totalLeds=rows*cols;gridInitialized=true;createGrid()}if(data.WS2812B&&Array.isArray(data.WS2812B)){const rgbArray=data.WS2812B;if(rgbArray.length===totalLeds){for(let i=0;i<totalLeds;i++){const rgb=rgbArray[i];if(rgb&&rgb.length===3){colors[i]=rgbToHex(rgb)}}updateGridColors()}else{console.warn(`颜色数组长度${rgbArray.length}与预期${totalLeds}不符`)}}if(typeof data.WS2812B_Brightness==='number'){currentBrightness=data.WS2812B_Brightness;document.getElementById('brightnessSlider').value=currentBrightness;document.getElementById('brightnessNumber').value=currentBrightness}}catch(err){console.error('获取颜色失败:',err)}}async function sendColors(){const rgbArray=[];for(let i=0;i<totalLeds;i++){rgbArray.push(hexToRgb(colors[i]))}currentBrightness=parseInt(document.getElementById('brightnessSlider').value,10);const payload={WS2812B:rgbArray,WS2812B_Brightness:currentBrightness};try{const response=await fetch('/api/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!response.ok)throw new Error('设置失败');const text=await response.text();console.log(text)}catch(err){console.error('设置颜色失败:',err)}}function setAllColors(color){for(let i=0;i<totalLeds;i++){colors[i]=color}updateGridColors()}async function fillRandom(){try{const response=await fetch('/api/random',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});if(!response.ok)throw new Error('随机填充失败');await fetchColors()}catch(err){console.error('随机填充失败:',err)}}async function reboot(apMode){try{const response=await fetch('/api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({AP_MODE:apMode})});if(!response.ok)throw new Error('连接失败');alert('设备正在重启...')}catch(err){console.error('重启请求失败:',err);alert('重启失败: '+err.message)}}function initBatchColorPicker(){const colorPickerCell=document.getElementById('batchColorCell');const hiddenInput=document.getElementById('batchColor');colorPickerCell.addEventListener('click',()=>{hiddenInput.click()});hiddenInput.addEventListener('change',(e)=>{const newColor=e.target.value;colorPickerCell.style.backgroundColor=newColor})}const slider=document.getElementById('brightnessSlider');const numberInput=document.getElementById('brightnessNumber');slider.addEventListener('input',function(){numberInput.value=this.value;currentBrightness=parseInt(this.value,10)});numberInput.addEventListener('input',function(){let val=parseInt(this.value,10);if(isNaN(val))val=0;val=Math.min(255,Math.max(0,val));slider.value=val;this.value=val;currentBrightness=val});document.getElementById('batchApplyBtn').onclick=()=>{const batchColor=document.getElementById('batchColor').value;setAllColors(batchColor)};document.getElementById('randomBtn').onclick=fillRandom;document.getElementById('updateBtn').onclick=fetchColors;document.getElementById('setBtn').onclick=sendColors;document.getElementById('rebootNormalBtn').onclick=()=>reboot(0);document.getElementById('rebootAPBtn').onclick=()=>reboot(1);createGrid();initBatchColorPicker();fetchColors();setTimeout(()=>{fetchColors()},500);</script></body></html>";
-const char* CONFIG_PAGE = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1\"><title>设备配置</title><style>body{font-family:sans-serif;max-width:400px;margin:30px auto;padding:20px;background:#f0f0f0}.container{background:white;padding:20px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}.form-group{margin-bottom:15px}label{display:block;margin-bottom:5px;font-weight:bold}input{width:100%;padding:8px;border:1px solid#ccc;border-radius:4px;box-sizing:border-box}.button-group{display:flex;gap:10px;margin-top:10px}button{flex:1;padding:10px;background:#28a745;color:white;border:none;border-radius:4px;font-size:16px;cursor:pointer}button:hover{background:#218838}.read-btn{background:#17a2b8}.read-btn:hover{background:#138496}.status{margin-top:15px;text-align:center;font-size:14px}.success{color:green}.error{color:red}hr{margin:20px 0}.reboot{background:#ffc107;color:#333}.reboot:hover{background:#e0a800}</style></head><body><div class=\"container\"><h2>设备配置</h2><div class=\"form-group\"><label>WiFi SSID</label><input type=\"text\"id=\"ssid\"placeholder=\"请输入WiFi名称\"></div><div class=\"form-group\"><label>WiFi密码</label><input type=\"text\"id=\"password\"placeholder=\"请输入WiFi密码\"></div><div class=\"form-group\"><label>LED行数</label><input type=\"number\"id=\"led_row\"placeholder=\"1~255\"min=\"1\"max=\"255\"></div><div class=\"form-group\"><label>LED列数</label><input type=\"number\"id=\"led_col\"placeholder=\"1~255\"min=\"1\"max=\"255\"></div><div class=\"form-group\"><label>LED引脚(GPIO)</label><input type=\"number\"id=\"led_pin\"placeholder=\"0~11\"min=\"0\"max=\"11\"></div><div class=\"form-group\"><label>默认亮度(0~255)</label><input type=\"number\"id=\"brightness\"placeholder=\"0~255\"min=\"0\"max=\"255\"></div><div class=\"button-group\"><button id=\"readBtn\"class=\"read-btn\">读取配置</button><button id=\"saveBtn\">保存配置</button></div><hr><div class=\"button-group\"><button id=\"rebootNormalBtn\"class=\"reboot\">重启设备(正常模式)</button><button id=\"rebootAPBtn\"class=\"reboot\"style=\"margin-top:5px;\">重启进入配网模式</button></div><div id=\"status\"class=\"status\"></div></div><script>async function loadConfig(){try{const response=await fetch('/api/get_config');if(!response.ok)throw new Error('获取配置失败');const data=await response.json();document.getElementById('ssid').value=data.ssid||'';document.getElementById('password').value=data.password||'';document.getElementById('led_row').value=data.led_row!==undefined?data.led_row:'';document.getElementById('led_col').value=data.led_col!==undefined?data.led_col:'';document.getElementById('led_pin').value=data.led_pin!==undefined?data.led_pin:'';document.getElementById('brightness').value=data.brightness!==undefined?data.brightness:'';showStatus('配置已读取',true)}catch(err){showStatus('获取配置失败: '+err.message,false)}}async function saveConfig(){const payload={ssid:document.getElementById('ssid').value,password:document.getElementById('password').value,led_row:parseInt(document.getElementById('led_row').value,10),led_col:parseInt(document.getElementById('led_col').value,10),led_pin:parseInt(document.getElementById('led_pin').value,10),brightness:parseInt(document.getElementById('brightness').value,10)};if(isNaN(payload.led_row))payload.led_row=1;if(isNaN(payload.led_col))payload.led_col=1;if(isNaN(payload.led_pin))payload.led_pin=-1;if(isNaN(payload.brightness))payload.brightness=16;try{const response=await fetch('/api/set_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!response.ok)throw new Error('保存失败');const text=await response.text();showStatus('配置已保存',true)}catch(err){showStatus('保存失败: '+err.message,false)}}async function reboot(apMode){try{const response=await fetch('/api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({AP_MODE:apMode})});if(!response.ok)throw new Error('重启失败');showStatus('设备正在重启...',true);setTimeout(()=>{},2000)}catch(err){showStatus('重启失败: '+err.message,false)}}function showStatus(msg,isSuccess){const statusDiv=document.getElementById('status');statusDiv.textContent=msg;statusDiv.className='status '+(isSuccess?'success':'error');setTimeout(()=>{statusDiv.textContent='';statusDiv.className='status'},3000)}document.getElementById('saveBtn').onclick=saveConfig;document.getElementById('readBtn').onclick=loadConfig;document.getElementById('rebootNormalBtn').onclick=()=>reboot(0);document.getElementById('rebootAPBtn').onclick=()=>reboot(1);loadConfig();</script></body></html>";
+const char* CONFIG_PAGE = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1\"><title>设备配置</title><style>body{font-family:sans-serif;max-width:400px;margin:30px auto;padding:20px;background:#f0f0f0}.container{background:white;padding:20px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}.form-group{margin-bottom:15px}label{display:block;margin-bottom:5px;font-weight:bold}input{width:100%;padding:8px;border:1px solid#ccc;border-radius:4px;box-sizing:border-box}.button-group{display:flex;gap:10px;margin-top:10px}button{flex:1;padding:10px;background:#28a745;color:white;border:none;border-radius:4px;font-size:16px;cursor:pointer}button:hover{background:#218838}.read-btn{background:#17a2b8}.read-btn:hover{background:#138496}.status{margin-top:15px;text-align:center;font-size:14px}.success{color:green}.error{color:red}hr{margin:20px 0}.reboot{background:#ffc107;color:#333}.reboot:hover{background:#e0a800}</style></head><body><div class=\"container\"><h2>设备配置</h2><div class=\"form-group\"><label>WiFi SSID</label><input type=\"text\"id=\"ssid\"placeholder=\"请输入WiFi名称\"></div><div class=\"form-group\"><label>WiFi密码</label><input type=\"text\"id=\"password\"placeholder=\"请输入WiFi密码\"></div><div class=\"form-group\"><label>LED行数</label><input type=\"number\"id=\"led_row\"placeholder=\"1~255\"min=\"1\"max=\"255\"></div><div class=\"form-group\"><label>LED列数</label><input type=\"number\"id=\"led_col\"placeholder=\"1~255\"min=\"1\"max=\"255\"></div><div class=\"form-group\"><label>LED引脚(GPIO)</label><input type=\"number\"id=\"led_pin\"placeholder=\"0~11\"min=\"0\"max=\"11\"></div><div class=\"form-group\"><label>默认亮度(0~255)</label><input type=\"number\"id=\"brightness\"placeholder=\"0~255\"min=\"0\"max=\"255\"></div><div class=\"form-group\"><label>信号反相(0~1)</label><input type=\"number\"id=\"invert_data\"placeholder=\"0~1\"min=\"0\"max=\"1\"></div><div class=\"button-group\"><button id=\"readBtn\"class=\"read-btn\">读取配置</button><button id=\"saveBtn\">保存配置</button></div><hr><div class=\"button-group\"><button id=\"rebootNormalBtn\"class=\"reboot\">重启设备(正常模式)</button><button id=\"rebootAPBtn\"class=\"reboot\"style=\"margin-top:5px;\">重启进入配网模式</button></div><div id=\"status\"class=\"status\"></div></div><script>async function loadConfig(){try{const response=await fetch('/api/get_config');if(!response.ok)throw new Error('获取配置失败');const data=await response.json();document.getElementById('ssid').value=data.ssid||'';document.getElementById('password').value=data.password||'';document.getElementById('led_row').value=data.led_row!==undefined?data.led_row:'';document.getElementById('led_col').value=data.led_col!==undefined?data.led_col:'';document.getElementById('led_pin').value=data.led_pin!==undefined?data.led_pin:'';document.getElementById('brightness').value=data.brightness!==undefined?data.brightness:'';document.getElementById('invert_data').value=data.invert_data!==undefined?data.invert_data:'';showStatus('配置已读取',true)}catch(err){showStatus('获取配置失败: '+err.message,false)}}async function saveConfig(){const payload={ssid:document.getElementById('ssid').value,password:document.getElementById('password').value,led_row:parseInt(document.getElementById('led_row').value,10),led_col:parseInt(document.getElementById('led_col').value,10),led_pin:parseInt(document.getElementById('led_pin').value,10),brightness:parseInt(document.getElementById('brightness').value,10),invert_data:parseInt(document.getElementById('invert_data').value,10)};if(isNaN(payload.led_row))payload.led_row=1;if(isNaN(payload.led_col))payload.led_col=1;if(isNaN(payload.led_pin))payload.led_pin=-1;if(isNaN(payload.brightness))payload.brightness=16;try{const response=await fetch('/api/set_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!response.ok)throw new Error('保存失败');const text=await response.text();showStatus('配置已保存',true)}catch(err){showStatus('保存失败: '+err.message,false)}}async function reboot(apMode){try{const response=await fetch('/api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({AP_MODE:apMode})});if(!response.ok)throw new Error('重启失败');showStatus('设备正在重启...',true);setTimeout(()=>{},2000)}catch(err){showStatus('重启失败: '+err.message,false)}}function showStatus(msg,isSuccess){const statusDiv=document.getElementById('status');statusDiv.textContent=msg;statusDiv.className='status '+(isSuccess?'success':'error');setTimeout(()=>{statusDiv.textContent='';statusDiv.className='status'},3000)}document.getElementById('saveBtn').onclick=saveConfig;document.getElementById('readBtn').onclick=loadConfig;document.getElementById('rebootNormalBtn').onclick=()=>reboot(0);document.getElementById('rebootAPBtn').onclick=()=>reboot(1);loadConfig();</script></body></html>";
 
 esp_err_t save_config()
 {
@@ -84,6 +86,7 @@ esp_err_t save_config()
     nvs_set_u8(nvs_handle, "WS2812B_COL", config.WS2812B_COLUMN);
     nvs_set_i8(nvs_handle, "WS2812B_LED_PIN", config.WS2812B_LED_PIN);
     nvs_set_u8(nvs_handle, "BRIGHTNESS", config.DEFAULT_BRIGHTNESS);
+    nvs_set_u8(nvs_handle, "InvertData", config.InvertData);
     err = nvs_commit(nvs_handle);
     nvs_close(nvs_handle);
     return err;
@@ -120,6 +123,10 @@ esp_err_t load_config()
     if (nvs_get_u8(nvs_handle, "BRIGHTNESS", &u8_temp) == ESP_OK)
     {
         config.DEFAULT_BRIGHTNESS = u8_temp;
+    }
+    if (nvs_get_u8(nvs_handle, "InvertData", &u8_temp) == ESP_OK)
+    {
+        config.InvertData = u8_temp;
     }
     nvs_close(nvs_handle);
     return ESP_OK;
@@ -355,6 +362,7 @@ static void display_ip_sequence(const char *ip) {
     "led_col": ?,
     "led_pin": ?,
     "brightness": ? (0~255)
+    "invert_data: ? (0/1)
   }
 
   /api/set_config(POST)
@@ -365,6 +373,7 @@ static void display_ip_sequence(const char *ip) {
     "led_col": ?,
     "led_pin": ?,
     "brightness": ? (0~255)
+    "invert_data: ? (0/1)
   }
 */
 
@@ -379,6 +388,7 @@ esp_err_t APSTA_GET_CONFIG(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "led_col", config.WS2812B_COLUMN);
     cJSON_AddNumberToObject(root, "led_pin", config.WS2812B_LED_PIN);
     cJSON_AddNumberToObject(root, "brightness", config.DEFAULT_BRIGHTNESS);
+    cJSON_AddNumberToObject(root, "invert_data", config.InvertData);
     char *response = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, response, strlen(response));
@@ -403,6 +413,7 @@ esp_err_t APSTA_SET_CONFIG(httpd_req_t *req)
     cJSON *led_col = cJSON_GetObjectItem(root, "led_col");
     cJSON *led_pin = cJSON_GetObjectItem(root, "led_pin");
     cJSON *bright = cJSON_GetObjectItem(root, "brightness");
+    cJSON *invert_data = cJSON_GetObjectItem(root, "invert_data");
 
     if (ssid && cJSON_IsString(ssid)) {
         strlcpy(config.WIFI_SSID, ssid->valuestring, sizeof(config.WIFI_SSID));
@@ -423,6 +434,10 @@ esp_err_t APSTA_SET_CONFIG(httpd_req_t *req)
     }
     if (bright && cJSON_IsNumber(bright)) {
         config.DEFAULT_BRIGHTNESS = (char)bright->valueint;
+    }
+    if (invert_data && cJSON_IsNumber(invert_data))
+    {
+        config.InvertData = (char)invert_data->valueint;
     }
     save_config();  // 必须确保 save_config 会保存 IsInit 和其他所有字段
 
@@ -866,7 +881,7 @@ led_strip_handle_t init_led(void)
         .led_model = LED_MODEL_WS2812,
         .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
         .flags = {
-            .invert_out = false,
+            .invert_out = config.InvertData,
         }
     };
 
