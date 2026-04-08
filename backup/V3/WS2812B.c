@@ -152,7 +152,18 @@ esp_err_t setLED_Random(uint16_t led_index)
     }
     return ESP_OK;
 }
+
+esp_err_t reapplyLED()
+{
+    for (int i = 0; i < current_led_count; i++)
+    {
+        setLED_RGB(i, current_colors[i * 3 + 0], current_colors[i * 3 + 1], current_colors[i * 3 + 2]);
+    }
+    return refreshLED();
+}
+
 esp_err_t refreshLED()
 {
     return led_strip_refresh(led_strip);
 }
+

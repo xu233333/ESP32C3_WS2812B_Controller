@@ -255,6 +255,8 @@ esp_err_t API_Set_WS2812B_Position(httpd_req_t *req)
 FAIL:
     UnlockBuffer();
     fclose(fp);
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "FAIL", 4);
     AfterAPI();
     return ESP_FAIL;
 }
@@ -309,16 +311,17 @@ esp_err_t API_Set_Config(httpd_req_t *req)
     cJSON *Invert_Out = cJSON_GetObjectItem(root, "Invert_Out");
     if (Invert_Out != NULL && cJSON_IsNumber(Invert_Out)) config.InvertOut = Invert_Out->valueint;
     UnlockBuffer();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "OK", 2);
     AfterAPI();
     return ESP_OK;
 FAIL:
     UnlockBuffer();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "FAIL", 4);
     AfterAPI();
     return ESP_FAIL;
 }
-
-
-
 
 esp_err_t API_Get_WS2812B_Single(httpd_req_t *req)
 {
@@ -386,5 +389,140 @@ esp_err_t API_Get_WS2812B_All(httpd_req_t *req)
     cJSON_Delete(root);
     free(json);
     AfterAPI();
+    return ESP_OK;
+}
+
+esp_err_t API_Set_WS2812B_Single(httpd_req_t *req)
+{
+    BeforeAPI();
+    LockBuffer();
+    int ret = httpd_req_recv(req, buffer, sizeof(buffer));
+    if (ret <= 0) goto FAIL;
+    cJSON *root = cJSON_Parse(buffer);
+    if (root == NULL) goto FAIL;
+    cJSON *index = cJSON_GetObjectItem(root, "index");
+    if (index == NULL || cJSON_IsNumber(index)) goto FAIL;
+    int Index = index->valueint;
+    if (Index < 0 || Index >= config.LED_Count) goto FAIL;
+    cJSON *color = cJSON_GetObjectItem(root, "color");
+    if (color == NULL || !cJSON_IsArray(color)) goto FAIL;
+    cJSON *rj, *gj, *bj;
+    rj = cJSON_GetArrayItem(color, 0);
+    gj = cJSON_GetArrayItem(color, 1);
+    bj = cJSON_GetArrayItem(color, 2);
+    if (rj == NULL || gj == NULL || bj == NULL) goto FAIL;
+    if (!cJSON_IsNumber(rj) || !cJSON_IsNumber(gj) || !cJSON_IsNumber(bj)) goto FAIL;
+    setLED_RGB(Index, rj->valueint, gj->valueint, bj->valueint);
+    refreshLED();
+    UnlockBuffer();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "OK", 2);
+    AfterAPI();
+    return ESP_OK;
+FAIL:
+    UnlockBuffer();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "FAIL", 4);
+    AfterAPI();
+    return ESP_FAIL;
+}
+
+esp_err_t API_Set_WS2812B_Brightness(httpd_req_t *req)
+{
+    BeforeAPI();
+    LockBuffer();
+    int ret = httpd_req_recv(req, buffer, sizeof(buffer));
+    if (ret <= 0) goto FAIL;
+    cJSON *root = cJSON_Parse(buffer);
+    if (root == NULL) goto FAIL;
+    cJSON *brightness = cJSON_GetObjectItem(root, "brightness");
+    if (brightness == NULL || !cJSON_IsNumber(brightness)) goto FAIL;
+    setBrightness(brightness->valueint);
+    reapplyLED();
+    UnlockBuffer();
+    AfterAPI();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "OK", 2);
+    return ESP_OK;
+FAIL:
+    UnlockBuffer();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "FAIL", 4);
+    AfterAPI();
+    return ESP_FAIL;
+}
+
+esp_err_t API_Set_WS2812B_All(httpd_req_t *req)
+{
+    BeforeAPI();
+    LockBuffer();
+    int ret = httpd_req_recv(req, buffer, sizeof(buffer));
+    if (ret <= 0) goto FAIL;
+    cJSON *root = cJSON_Parse(buffer);
+    if (root == NULL) goto FAIL;
+    cJSON *brightness = cJSON_GetObjectItem(root, "brightness");
+    if (brightness == NULL || !cJSON_IsNumber(brightness)) goto FAIL;
+    setBrightness(brightness->valueint);
+    cJSON *WS2812B = cJSON_GetObjectItem(root, "WS2812B");
+    if (WS2812B == NULL || !cJSON_IsArray(WS2812B)) goto FAIL;
+    for (int i = 0; i < config.LED_Count; i++) { 
+        cJSON *item = cJSON_GetArrayItem(WS2812B, i);
+        cJSON *rj, *gj, *bj;
+        rj = cJSON_GetArrayItem(item, 0);
+        gj = cJSON_GetArrayItem(item, 1);
+        bj = cJSON_GetArrayItem(item, 2);
+        if (rj == NULL || gj == NULL || bj == NULL) goto FAIL;
+        if (!cJSON_IsNumber(rj) || !cJSON_IsNumber(gj) || !cJSON_IsNumber(bj)) goto FAIL;
+        setLED_RGB(i, rj->valueint, gj->valueint, bj->valueint);
+    }
+    refreshLED();
+    UnlockBuffer();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "OK", 2);
+    AfterAPI();
+    return ESP_OK;
+FAIL:
+    UnlockBuffer();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "FAIL", 4);
+    AfterAPI();
+    return ESP_FAIL;
+}
+
+esp_err_t API_Get_WS2812B_Random(httpd_req_t *req)
+{
+    BeforeAPI();
+    for (int i = 0; i < config.LED_Count; i++) { 
+        setLED_Random(i);
+    }
+    refreshLED();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "OK", 2);
+    AfterAPI();
+    return ESP_OK;
+}
+
+esp_err_t API_Reboot(httpd_req_t *req)
+{
+    BeforeAPI();
+    LockBuffer();
+    bool R_AP_Mode = false;
+    int ret = httpd_req_recv(req, buffer, sizeof(buffer));
+    if (ret <= 0) goto LoadConfigCompleted;
+    cJSON *root = cJSON_Parse(buffer);
+    if (root == NULL) goto LoadConfigCompleted;
+    cJSON *AP_Mode = cJSON_GetObjectItem(root, "AP_Mode");
+    if (AP_Mode == NULL || !cJSON_IsBool(AP_Mode)) goto LoadConfigCompleted;
+    R_AP_Mode = AP_Mode->valueint;
+LoadConfigCompleted:
+    config.AP_Mode = R_AP_Mode;
+    saveConfig();
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "OK", 2);
+    AfterAPI();
+
+    // 3秒后重启
+    vTaskDelay(3000 / portTICK_PERIOD_MS);
+    esp_restart();
     return ESP_OK;
 }
